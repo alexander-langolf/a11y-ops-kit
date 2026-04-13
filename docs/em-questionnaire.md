@@ -120,16 +120,39 @@ Squad contact is not responsible for:
 
 ## Coda Mapping
 
-Map answers from this questionnaire into Coda after intake:
+Map answers from this questionnaire into Coda after intake.
 
-| Questionnaire topic | Coda destination |
+### Repo Ops Row
+
+| Questionnaire answer | Coda field |
 | --- | --- |
-| EM, squad contact, ADS deputy | Repo Ops row |
-| CI provider, required checks, branch protection verified date | Repo Ops row |
-| Current trust phase and current batch | Repo Ops row |
-| Route hotspots, strategy notes | Batch Tracker notes or repo notes |
-| Access blockers, flaky tests, freeze windows | Blockers / Incident log or repo notes |
-| Datadog targets and alert routing | Repo Ops row and monitor setup notes |
+| Repo URL (Section 2) | `Repo` |
+| Escalation EM (Section 1) | `EM` |
+| Primary squad contact (Section 3) | `Squad_Contact` |
+| ADS backup reviewer (internal ADS decision) | `ADS_Deputy` |
+| CI checks confirmed date (Section 5) | `CI_Verified` |
+| Branch protection confirmed date (Section 5) | `Branch_Protection_Verified` |
+| Initial trust phase (always Batch 1) | `Current_Trust_Phase` |
+| First batch ID (derived after batching discussion) | `Current_Batch` |
+| Datadog service or RUM identifiers (Section 9) | Notes or linked monitor config |
+
+### Batch Tracker Row
+
+| Questionnaire answer | Coda field |
+| --- | --- |
+| Batching strategy preference (Section 6) | `Strategy` |
+| Route hotspots and sensitive flows (Section 6) | `Notes` |
+| Sponsor for batch-completion updates (Section 1) | `Notes` or notification distribution |
+
+### Blockers / Incident Log
+
+| Questionnaire answer | Coda field |
+| --- | --- |
+| Active refactors or parallel work (Section 8) | Pre-populate `Type: parallel-work`, `Summary` |
+| Freeze windows (Section 8) | Pre-populate `Type: freeze-window`, `Summary`, `ETA` |
+| Known flaky CI jobs (Section 5) | Pre-populate `Type: CI`, `Summary` |
+| Access or credential blockers (Section 4) | Pre-populate `Type: access`, `Summary`, `Owner` |
+| Third-party blockers (Section 7) | Pre-populate `Type: third-party`, `Summary`, `Owner` |
 
 ## Storage Rule
 
