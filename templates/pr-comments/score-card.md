@@ -17,4 +17,3 @@
 
 **Changed files:** `{changed_files}`
 **Affected routes:** `{affected_routes}`
-**File overlap:** `{file_overlap}`

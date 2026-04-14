@@ -1,6 +1,6 @@
 ```yaml
 ---
-repo: Multiverse-io/account-hub
+repo: Multiverse-io/account_hub
 domain: app.multiverse.io
 squad: Trusted Enterprise Platform
 em: TBD

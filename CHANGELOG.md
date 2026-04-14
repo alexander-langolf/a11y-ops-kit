@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 - 2026-04-14
+
+- Removed `File overlap` from reviewer result format and score card template. Overlap analysis is supervisor-only, computed across PRs in the batch. Reviewer reports changed files only.
+- Added calibration observation step (step 10) to supervisor workflow. Supervisor now checks worker output for noise or miscalibration and appends findings to `docs/scoring-calibration-log.md`.
+- Recorded Phase 0 dry run calibration entry in scoring calibration log.
+- Bumped supervisor to 0.1.1, reviewer to 0.1.1.
+
 ## 0.2.0 - 2026-04-14
 
 - Converted supervisor and reviewer skill contracts into proper CAO agent profiles with frontmatter.
