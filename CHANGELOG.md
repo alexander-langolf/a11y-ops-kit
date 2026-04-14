@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0 - 2026-04-14
+
+- Converted supervisor and reviewer skill contracts into proper CAO agent profiles with frontmatter.
+- Added pre-scoring heuristics to the reviewer profile (test adjacency, string drift, CSS selector, WCAG cross-ref, dependency bump).
+- Extended reviewer result format with CI Failure Owner, Next action, Affected routes, Changed files, File overlap.
+- Added developer agent profile (`a11y_developer`) for mechanical test fixes on Workback branches.
+- Added merge assistant agent profile (`a11y_merge_assistant`) for sequential squash-merge after human approval.
+- Added `repo-config/` with static per-repo configuration for Account Hub and Ariel.
+- Added `flows/` with CAO monitor flows for Account Hub and Ariel (every 4h on weekdays).
+- Added `scheduled/` with Claude Code cloud task spec for always-on regression monitoring.
+- Added `scripts/check-recent-merges.sh` for conditional monitor flow execution.
+- Updated batch-summary template with RED tier, developer routing, file overlap, and merge ordering.
+- Updated score-card template with Changed files, Affected routes, and File overlap fields.
+- Updated `skills/README.md` with profile table and versioning policy.
+- Updated root `README.md` with new directories, layout table, and glossary.
+
 ## 0.1.0 - 2026-04-13
 
 - Bootstrapped the initial A11y Ops Kit repo.

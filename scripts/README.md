@@ -1,18 +1,20 @@
 # Scripts
 
-Placeholder area for future automation glue.
+Automation glue for the a11y review pipeline.
 
-Expected candidates:
+## Current Scripts
 
-- `sync-coda` or equivalent:
-  - update issue status to `Awaiting Re-audit` after merge
-  - write `Verified Fixed` or `Follow-up PR Opened` after Workback re-audit
-- `merge-batch`:
-  - merge the approved PR list sequentially
-  - stop on conflicts or unexpected state
-- `export-batch-summary`:
-  - generate stakeholder-ready summaries from GitHub + Coda state
+| Script | Purpose | Used by |
+| --- | --- | --- |
+| `check-recent-merges.sh` | Checks for recent Workback merges in a repo; returns JSON for CAO flow template substitution | CAO monitor flows in `flows/` |
 
-Do not store secrets in this repo.
+## Planned
 
-Use environment variables for future tokens and endpoints.
+- `sync-coda` — update issue status to `Awaiting Re-audit` after merge; write `Verified Fixed` or `Follow-up PR Opened` after Workback re-audit
+- `export-batch-summary` — generate stakeholder-ready summaries from GitHub + Coda state
+
+## Rules
+
+- Do not store secrets in this repo.
+- Use environment variables for tokens and endpoints.
+- Scripts must be executable (`chmod +x`).

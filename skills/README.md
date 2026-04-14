@@ -1,17 +1,25 @@
 # Skills
 
-This directory stores versioned skill contracts for the CAO-based accessibility remediation team.
+This directory stores versioned CAO agent profiles for the accessibility remediation team.
 
-These are not live tracker records. They are stable operating specs for:
+## Profiles
 
-- what each agent is responsible for
-- which docs each agent must follow
-- what outputs each agent must return
-- which actions are forbidden
+| File | CAO name | Role | Provider | Purpose |
+| --- | --- | --- | --- | --- |
+| `cao-workback-supervisor.md` | `a11y_review_supervisor` | supervisor | claude_code (Opus) | Orchestrates batch review, routes results, dispatches workers |
+| `cao-workback-reviewer.md` | `a11y_pr_reviewer` | reviewer | codex | Scores one PR for code safety, diagnoses CI failures |
+| `cao-workback-developer.md` | `a11y_developer` | developer | codex (Spark) | Fixes test files broken by correct a11y changes |
+| `cao-merge-assistant.md` | `a11y_merge_assistant` | developer | claude_code (Sonnet) | Executes squash-merge sequence after human approval |
 
-Suggested change policy:
+The Monitor agent does not have a CAO profile here. It exists as CAO flows in `flows/` and a Claude Code cloud task in `scheduled/`.
 
-1. Update the skill file.
-2. Update any referenced templates or docs.
-3. Record the change in `CHANGELOG.md`.
-4. Re-calibrate after Batch 1 or whenever the rubric meaning changes.
+## Change Policy
+
+1. Update the profile file.
+2. Bump the version in its header following semver:
+   - Patch: prompt wording tweak
+   - Minor: new heuristic, new output field, workflow step change
+   - Major: role restructure, scoring model change, new agent added
+3. Update any referenced templates or docs.
+4. Record the change in `CHANGELOG.md`.
+5. Re-calibrate after Batch 1 or whenever the rubric meaning changes.

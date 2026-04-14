@@ -1,32 +1,38 @@
 # A11y Review Team — Design Spec
 
 Version: `0.1.0`
+Status: `planned target-state design`
 
 ## Purpose
 
 Design a CAO-orchestrated agentic team that reviews, fixes, and monitors Workback accessibility remediation PRs across all 13 Multiverse Stardust consumer apps. The team replaces manual per-PR review with a structured, scored, trust-gated process where agents handle the mechanical work and humans make merge decisions.
 
+This document defines the target workflow to implement. It describes the intended end state, not a claim that the full system is already live in every repo today.
+
 ## Scope
 
-- All 13 Stardust consumer repos (Account Hub, Ariel, Atlas, Aurora, Checker, Client XP, Evidence Management, Guidance Hub, Guide Allocation Engine, Hello App, Platform, Sync Sessions, User Home)
+- Target architecture supports all 13 Stardust consumer repos (Account Hub, Ariel, Atlas, Aurora, Checker, Client XP, Evidence Management, Guidance Hub, Guide Allocation Engine, Hello App, Platform, Sync Sessions, User Home)
+- Initial rollout and calibration start with Account Hub, then Ariel. Expansion beyond approved repos still requires explicit repo onboarding and operating approval.
 - Workback-generated PRs only (branch pattern `workbackai/fix/*`, author `ada-workbackai`)
 - Code safety review, not accessibility correctness (Workback owns a11y verification via post-merge re-audit)
 
 ## Team Architecture
 
-Five agents, two-phase local orchestration via CAO, plus a decoupled monitoring layer.
+Five agents, a three-stage operating model, and Coda as the live-state store for active remediation state.
 
 ### Agents
 
-| Agent | Profile name | Provider | Role | CAO role |
-| --- | --- | --- | --- | --- |
-| Supervisor | `a11y_review_supervisor` | `claude_code` (Opus) | Orchestrates batch review, routes results, dispatches workers | `supervisor` |
-| Reviewer | `a11y_pr_reviewer` | `codex` | Scores one PR for code safety, diagnoses CI failures | custom `allowedTools` |
-| Developer | `a11y_developer` | `codex` (Spark) | Fixes test files broken by correct a11y changes | `developer` |
-| Merge Assistant | `a11y_merge_assistant` | `claude_code` (Sonnet) | Executes squash-merge sequence after human approval | `developer` |
-| Monitor | n/a (not a CAO profile) | `claude_code` (Sonnet) | Post-merge regression detection | CAO flow + Claude Code cloud task |
 
-### Two-Phase Orchestration
+| Agent           | Profile name             | Provider               | Role                                                          | CAO role                             |
+| --------------- | ------------------------ | ---------------------- | ------------------------------------------------------------- | ------------------------------------ |
+| Supervisor      | `a11y_review_supervisor` | `claude_code` (Opus)   | Orchestrates batch review, routes results, dispatches workers | `supervisor` + custom `allowedTools` |
+| Reviewer        | `a11y_pr_reviewer`       | `codex`                | Scores one PR for code safety, diagnoses CI failures          | custom `allowedTools`                |
+| Developer       | `a11y_developer`         | `codex` (Spark)        | Fixes test files broken by correct a11y changes               | `developer`                          |
+| Merge Assistant | `a11y_merge_assistant`   | `claude_code` (Sonnet) | Executes squash-merge sequence after human approval           | `developer`                          |
+| Monitor         | n/a (not a CAO profile)  | `claude_code` (Sonnet) | Post-merge regression detection                               | CAO flow + Claude Code cloud task    |
+
+
+### Three-Stage Orchestration
 
 ```
 Phase 1 — Review (CAO, local)
@@ -34,21 +40,25 @@ Phase 1 — Review (CAO, local)
   Sasha provides: repo, batch ID, PR list, trust phase, WCAG criteria
 
   Supervisor
-    1. Reads repo-config/{repo}.md for CI checks, routes, contacts
-    2. assign(a11y_pr_reviewer) x N in parallel
-    3. Ends turn, waits for send_message results
-    4. Routes results:
+    1. Reads repo-config/{repo}.md for static CI checks, routes, contacts
+    2. Reads trust phase and current batch state from Coda
+    3. assign(a11y_pr_reviewer) x N in parallel
+    4. Ends turn, waits for send_message results
+    5. Routes results:
+       - verdict WAIT + ci_state: pending → requeue reviewer after poll interval
        - ci_failure_owner: ada → already commented, add to "return to Ada" list
        - ci_failure_owner: ads → assign(a11y_developer) with failing test details
-       - ci_failure_owner: unknown → add to human escalation list
+       - ci_failure_owner: unknown → add to human triage list
+       - developer_status: READY_FOR_REVIEW → assign(a11y_pr_reviewer) again on current head SHA
+       - developer_status: NEEDS_HUMAN → add to human escalation list
        - verdict PASS → merge-ready list
        - verdict FLAG → human review list
        - verdict FAIL → return to Ada list
-    5. Waits for developer results if dispatched
-    6. Computes file overlap from reviewer-reported changed files
-    7. Produces batch summary
-    8. Cleans up worker tmux sessions
-    9. Presents action list to Sasha
+    6. Waits for developer or re-review results if dispatched
+    7. Computes file overlap from reviewer-reported changed files
+    8. Produces batch summary + Coda update payload
+    9. Cleans up worker tmux sessions
+   10. Presents action list to Sasha
 
 Phase 2 — Merge (human-triggered)
 
@@ -69,12 +79,14 @@ Phase 3 — Monitor (decoupled)
     - Script checks for recent Workback merges
     - If merges found, launches monitor agent with templated prompt
     - Queries Datadog, correlates with merge timeline
-    - Posts to Slack if regression detected
+    - Posts to Slack with the relevant Coda link if regression detected
 
   Claude Code cloud task as overnight/always-on fallback
     - Same monitoring logic, no local machine dependency
     - Runs on Anthropic infrastructure
 ```
+
+Supervisor owns the review loop. A PR only becomes merge-ready from a fresh reviewer result on the current head SHA. Developer output can request re-review, but it never makes a PR merge-ready by itself.
 
 ## Agent Profile Specifications
 
@@ -85,6 +97,7 @@ Phase 3 — Monitor (decoupled)
 name: a11y_review_supervisor
 description: Coordinates batch review of Workback accessibility remediation PRs across Multiverse apps
 role: supervisor
+allowedTools: ["fs_read", "fs_list", "execute_bash", "@cao-mcp-server"]
 mcpServers:
   cao-mcp-server:
     type: stdio
@@ -96,7 +109,10 @@ mcpServers:
 ---
 ```
 
+Note: the supervisor needs bash access for CAO and tmux lifecycle commands plus Coda sync helpers. It still does not review diffs or write repo code.
+
 Inputs (from Sasha at launch):
+
 - Repo name and GitHub org
 - Batch ID (e.g., `ah-1`, `ariel-1`)
 - PR numbers in the batch
@@ -105,26 +121,36 @@ Inputs (from Sasha at launch):
 - Historical signal notes
 
 Workflow:
+
 1. Load `cao-supervisor-protocols` skill.
 2. Get own `$CAO_TERMINAL_ID`.
-3. Read `repo-config/{repo}.md` from the a11y-ops-kit clone.
-4. `assign(a11y_pr_reviewer)` for each PR with repo config context injected.
-5. End turn. Do not run shell commands to wait. Inbox delivery is idle-based.
-6. On reviewer results: route by `ci_failure_owner` and `verdict`.
-7. For `ads`-owned CI failures: `assign(a11y_developer)` with failing test details and worktree path.
-8. Wait for developer results if dispatched.
-9. Compute file overlap from reviewer-reported changed file lists.
-10. Produce batch summary using `templates/pr-comments/batch-summary.md`.
-11. Clean up worker tmux sessions via `cao shutdown --session {session_name}` for each finished worker.
-12. Present action list to Sasha.
+3. Read static `repo-config/{repo}.md` from the a11y-ops-kit clone.
+4. Read current trust phase, current batch, and relevant blocker notes from Coda.
+5. `assign(a11y_pr_reviewer)` for each PR with repo config context injected.
+6. End turn. Do not run shell commands to wait. Inbox delivery is idle-based.
+7. On reviewer results:
+  - If `verdict: WAIT` because CI is still pending, requeue the reviewer after the poll interval.
+  - If `ci_failure_owner: ada`, route to the return-to-Ada list.
+  - If `ci_failure_owner: ads`, `assign(a11y_developer)` with failing test details and worktree path.
+  - If `ci_failure_owner: unknown`, route to human triage.
+8. On developer `READY_FOR_REVIEW`, reassign a reviewer for the current head SHA.
+9. On developer `NEEDS_HUMAN`, route to human escalation.
+10. Only a fresh reviewer result on the current head SHA can route a PR to merge-ready, human review, or return-to-Ada.
+11. Compute file overlap from reviewer-reported changed file lists.
+12. Produce batch summary using `templates/pr-comments/batch-summary.md` plus a Coda update payload.
+13. Clean up worker tmux sessions via `cao shutdown --session {session_name}` for each finished worker.
+14. Present action list to Sasha.
 
 Constraints:
+
 - Never writes code or reviews diffs directly.
 - Never merges.
 - Never overrides a `CI_BLOCKED` result.
+- May use bash only for CAO session orchestration, tmux lifecycle commands, and Coda sync helpers.
 - Must end turn after dispatching all `assign` calls (idle-based message delivery).
 - Include "check for stale worktrees at `/tmp/a11y-fix-*` and remove before creating new ones" in every developer assign message.
 - After all workers report back, close their tmux sessions. Do not close own session.
+- Must send a PR back to reviewer after `WAIT` or `READY_FOR_REVIEW`; developer output alone never completes review.
 - If a worker has not responded after 10 minutes, log as blocker and close its session.
 
 ### Reviewer (`a11y_pr_reviewer.md`)
@@ -150,6 +176,7 @@ mcpServers:
 Note: `allowedTools` overrides `role` — reviewer gets bash (for `gh`, `rg`) and read access but no file writes. Codex uses soft enforcement (system prompt instructions).
 
 Inputs (from supervisor via `assign`):
+
 - Repo, PR number, batch ID, trust phase
 - WCAG criteria for the batch
 - Historical signal notes
@@ -157,17 +184,19 @@ Inputs (from supervisor via `assign`):
 - Callback terminal ID
 
 Workflow:
+
 1. Load `cao-worker-protocols` skill.
 2. Run `gh pr checks {number}` for current head SHA.
 3. If checks pending: return `WAIT`.
 4. If any CI job failed: diagnose why.
-   - Parse failing test output via `gh run view`.
-   - Classify `ci_failure_owner`:
-     - `ada`: the code change itself is broken.
-     - `ads`: existing tests assert on old DOM/strings that the a11y fix correctly changed.
-     - `unknown`: cannot determine ownership.
-   - If `ada`: post CI-blocked comment using `templates/pr-comments/ci-blocked.md`, return `CI_BLOCKED`.
-   - If `ads` or `unknown`: return result with `ci_failure_owner` field, do NOT post CI-blocked comment.
+  - Parse failing test output via `gh run view`.
+  - Classify `ci_failure_owner`:
+    - `ada`: the code change itself is broken.
+    - `ads`: existing tests assert on old DOM/strings that the a11y fix correctly changed.
+    - `unknown`: cannot determine ownership.
+  - If `ada`: post CI-blocked comment using `templates/pr-comments/ci-blocked.md`, return `CI_BLOCKED`.
+  - If `ads`: return `WAIT` with `ci_failure_owner: ads`, failing test details, and re-review notes. Do NOT score.
+  - If `unknown`: return `WAIT` with `ci_failure_owner: unknown` and escalation notes. Do NOT score.
 5. If CI green: run pre-scoring heuristics, then score.
 6. Post score card comment using `templates/pr-comments/score-card.md`.
 7. `send_message` structured result to supervisor.
@@ -175,18 +204,14 @@ Workflow:
 Pre-scoring heuristics (mandatory before scoring):
 
 1. **Test adjacency check**: For every changed component file, `rg` the directory tree for test files referencing changed elements (heading levels, aria attributes, string literals). If related tests exist and were not updated, feed into Test Completeness score.
-
 2. **String drift detection**: When diff contains changed string literals, search test files for the old string value. If found, classify as `ci_failure_owner: ads`.
-
-3. **CSS selector consistency**: When semantic HTML changes, search `.scss`/`.css`/`.module.*` for selectors targeting the old element.
-
+3. **CSS selector consistency**: When semantic HTML changes, search `.scss`/`.css`/`.module.`* for selectors targeting the old element.
 4. **WCAG criterion cross-reference**: Verify change type matches stated criterion.
-   - `1.3.1` → semantic HTML, headings, landmarks
-   - `1.4.3` → color/contrast CSS
-   - `2.4.2` → page title
-   - `3.3.1` → error association (aria-describedby)
-   - `4.1.2` → ARIA attributes, roles, labels
-
+  - `1.3.1` → semantic HTML, headings, landmarks
+  - `1.4.3` → color/contrast CSS
+  - `2.4.2` → page title
+  - `3.3.1` → error association (aria-describedby)
+  - `4.1.2` → ARIA attributes, roles, labels
 5. **Dependency bump detection**: If `package.json` in changed files, flag as elevated Side Effect Risk.
 
 Result format:
@@ -195,9 +220,10 @@ Result format:
 PR #1234
 CI Merge Gate: PASS | CI_BLOCKED | WAIT
 CI Failure Owner: ada | ads | unknown | n/a
-Score: 5/16
-Tier: YELLOW
-Verdict: PASS
+Score: 5/16 | n/a
+Tier: YELLOW | n/a
+Verdict: PASS | FLAG | FAIL | WAIT | CI_BLOCKED
+Next action: merge-ready | return-to-Ada | assign-developer | requeue-review | human-triage
 Top risk dimension: Test Completeness
 Affected routes: /pathway-admin, /pathway-admin/list
 Changed files: PathwayCard.tsx, PathwayAdminList.tsx, PathwayCard.module.scss
@@ -229,6 +255,7 @@ mcpServers:
 Note: `provider: codex` with Spark model. Codex uses soft enforcement for tool restrictions, but `role: developer` grants full access anyway.
 
 Inputs (from supervisor via `assign`):
+
 - Repo, PR number, Workback branch name
 - Worktree path (e.g., `/tmp/a11y-fix-3236`)
 - Failing test file paths and failure output
@@ -236,23 +263,24 @@ Inputs (from supervisor via `assign`):
 - Callback terminal ID
 
 Workflow:
+
 1. Load `cao-worker-protocols` skill.
 2. Check for stale worktrees: `git worktree list | grep /tmp/a11y-fix-` and remove any that match the target path.
 3. Create git worktree: `git worktree add {worktree_path} {branch_name}`.
 4. Work entirely inside the worktree directory.
 5. Read failing test files and the component diff.
 6. Identify mechanical fixes:
-   - Heading level assertions (`level: 3` → `level: 2`)
-   - String literal updates in test expectations
-   - Mock component updates (mock renders old element type)
-   - Test query selectors targeting old DOM structure
-   - Snapshot updates for changed DOM
+  - Heading level assertions (`level: 3` → `level: 2`)
+  - String literal updates in test expectations
+  - Mock component updates (mock renders old element type)
+  - Test query selectors targeting old DOM structure
+  - Snapshot updates for changed DOM
 7. Apply fixes to test files only.
 8. Run the specific test suite to verify.
 9. Commit: `test: update assertions for a11y {change_type} changes`.
 10. Push to the Workback branch.
 11. Clean up worktree: `git worktree remove {worktree_path}`.
-12. `send_message` result to supervisor.
+12. `send_message` result to supervisor so the PR can be re-reviewed on the new head SHA.
 
 If any step fails, remove the worktree before reporting failure.
 
@@ -269,8 +297,9 @@ Notes: ...
 ```
 
 Constraints:
+
 - Only modifies test files. Never touches component code, CSS, config, or business logic.
-- All fixes go to human review queue. Never auto-approved.
+- Never marks a PR merge-ready. Every developer-touched PR must be re-reviewed by a reviewer on the new head SHA.
 - If the fix requires understanding business logic or test intent beyond mechanical replacement, return `NEEDS_HUMAN`.
 - Never creates new test files. Only updates existing ones.
 - Always cleans up worktree on success or failure.
@@ -295,18 +324,20 @@ mcpServers:
 ```
 
 Inputs (from Sasha, human-triggered):
+
 - Ordered list of PR numbers to merge
 - Repo name
 - Merge method: squash-merge
 
 Workflow:
+
 1. For each PR in order:
-   - Verify CI is still green via `gh pr checks {number}`.
-   - Check for merge conflicts with current `main`.
-   - If conflict: stop, report which PR conflicts and with what file.
-   - Execute `gh pr merge {number} --squash`.
-   - Log merge timestamp.
-   - Wait for merge to complete before next PR.
+  - Verify CI is still green via `gh pr checks {number}`.
+  - Check for merge conflicts with current `main`.
+  - If conflict: stop, report which PR conflicts and with what file.
+  - Execute `gh pr merge {number} --squash`.
+  - Log merge timestamp.
+  - Wait for merge to complete before next PR.
 2. Produce merge log.
 
 Merge log format:
@@ -320,6 +351,7 @@ STOPPED: #826 conflicts with merged #815 on AccountSignUpForm.tsx
 ```
 
 Constraints:
+
 - Only merges PRs explicitly listed by Sasha.
 - Stops on first conflict. Does not attempt resolution.
 - Never approves PRs. Only executes the merge command.
@@ -356,19 +388,23 @@ Always-on fallback at `claude.ai/code/scheduled`. Runs daily on weekdays. Self-c
 ### Monitor detection signals
 
 **Metric timeline correlation:**
+
 - Match Datadog RUM metric changes (CLS spike, JS error rate increase, LCP degradation) against merge timestamps from the merge log.
 - The merge assistant logs precise per-PR timestamps. A metric change within 15 minutes of a merge implicates that PR.
 
 **Route correlation:**
+
 - Each reviewer reports changed files and affected routes.
 - If a regression appears on `/registration` and PR #815 modified `AccountSignUpForm.tsx` (which maps to `/registration`), PR #815 is the suspect.
 
 **Risk score correlation:**
+
 - CLS regressions most likely from Side Effect Risk 2+ PRs (CSS/layout changes).
 - JS error spikes most likely from Side Effect Risk 3 PRs (business logic, routing).
 - Pure attribute additions (risk 0) are low-probability suspects.
 
 **Revert and hotfix detection:**
+
 - Check for revert commits or PRs touching batch files within 48h of merge.
 - Check for hotfix PRs from squad members touching same files.
 
@@ -435,16 +471,20 @@ a11y-ops-kit/
 
 ## Config Resolution
 
-Agent profiles are repo-agnostic. Per-repo context comes from `repo-config/{repo}.md`.
+Agent profiles are repo-agnostic. Static per-repo context comes from `repo-config/{repo}.md`. Live remediation state comes from Coda.
 
-The supervisor reads the config file at batch start and injects relevant sections into each worker's `assign` message. Workers never read config files directly.
+The supervisor reads the repo config file at batch start, reads trust phase and current batch state from Coda, then injects relevant sections into each worker's `assign` message. Workers never read config files directly.
 
-| Agent | Config injected by supervisor |
-| --- | --- |
-| Reviewer | `ci_required_checks`, `branch_pattern`, `pr_author`, route map for changed files, known flaky tests |
-| Developer | Branch name, worktree path, repo clone location, test framework conventions |
-| Merge Assistant | Merge method, required checks to verify pre-merge, repo name |
-| Monitor | Reads config directly (CAO flow script reads `repo-config/`, cloud task clones repo) |
+
+| Agent           | Config injected by supervisor                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Reviewer        | `ci_required_checks`, `branch_pattern`, `pr_author`, route map for changed files, known flaky tests, trust phase from Coda |
+| Developer       | Branch name, worktree path, repo clone location, test framework conventions                                                |
+| Merge Assistant | Merge method, required checks to verify pre-merge, repo name, trust phase from Coda if needed for routing logs             |
+| Monitor         | Reads config directly (CAO flow script reads `repo-config/`, cloud task clones repo)                                       |
+
+
+Live fields such as `trust_phase`, `current_batch`, `Awaiting_Reaudit_Count`, and blocker status do not belong in `repo-config/`; they live in Coda.
 
 Config file format (`repo-config/{repo}.md`):
 
@@ -465,8 +505,6 @@ datadog:
   service: account-hub
   baseline_cls: 0.1
   baseline_js_error_rate: 0.5
-trust_phase: "Batch 1"
-current_batch: null
 ---
 ```
 
@@ -474,7 +512,7 @@ Body contains: route map, known hotspot files, known flaky tests, and notes.
 
 Config updates: edit file, commit, push. Next supervisor launch picks up changes.
 
-Adding a new repo: copy existing config, fill from EM questionnaire, commit.
+Adding a new repo: copy existing config, fill from EM questionnaire, commit, and add the corresponding Repo Ops row in Coda.
 
 ## Batch Naming Convention
 
@@ -487,25 +525,17 @@ Sasha assigns the batch ID when launching the supervisor. The ID appears in all 
 ### Pre-merge (Reviewer)
 
 1. **Test adjacency check** — For every changed component file, search the directory tree for test files referencing changed elements. Highest-value heuristic: would have caught 17/19 Account Hub PRs and Ariel PR #3236.
-
 2. **String drift detection** — When diff contains changed string literals, search test files for old value. If found, classify `ci_failure_owner: ads`.
-
 3. **CSS selector consistency** — When semantic HTML changes, search stylesheets for selectors targeting the old element.
-
 4. **WCAG criterion cross-reference** — Verify change type matches stated criterion family.
-
 5. **Dependency bump isolation** — If `package.json` in changed files, flag elevated Side Effect Risk and recommend merging first.
-
 6. **File overlap detection** (supervisor, from reviewer data) — Cross-reference changed file lists across all PRs in the batch. Flag conflict risk and recommend merge ordering.
 
 ### Post-merge (Monitor)
 
 1. **Metric timeline correlation** — Match Datadog metric changes against per-PR merge timestamps.
-
 2. **Route correlation** — Match affected route to PR that modified components on that route.
-
 3. **Risk score correlation** — Narrow suspects by Side Effect Risk score.
-
 4. **Revert and hotfix detection** — Check for reverts or hotfix PRs touching batch files within 48h.
 
 ## Scoring Reference
@@ -523,12 +553,16 @@ The reviewer uses the canonical rubric at `docs/pr-scoring-rubric.md` (v0.1.0):
 
 Each repo starts at Batch 1 regardless of trust in other repos.
 
-| Phase | Auto-merge | Agent-only | Human required | Advance when |
-| --- | --- | --- | --- | --- |
-| Batch 1 | None | None | All | n/a |
-| Batch 2-3 | None | GREEN (0-3) | YELLOW+ (4+) | Batch 1: 0 regressions |
-| Batch 4+ | GREEN (0-3) | YELLOW (4-7) | ORANGE+ (8+) | Batches 2-3: under 5% false PASS rate |
-| Mature | GREEN + YELLOW (0-7) | ORANGE (8-11) | RED (12-16) | 100+ PRs with under 2% false PASS rate |
+Current trust phase is read from Coda at batch launch time. `Auto-merge` below means eligible for the prepared merge set without extra human diff review; Sasha still launches the merge assistant unless a later automation step removes that manual launch.
+
+
+| Phase     | Auto-merge           | Agent-only    | Human required | Advance when                           |
+| --------- | -------------------- | ------------- | -------------- | -------------------------------------- |
+| Batch 1   | None                 | None          | All            | n/a                                    |
+| Batch 2-3 | None                 | GREEN (0-3)   | YELLOW+ (4+)   | Batch 1: 0 regressions                 |
+| Batch 4+  | GREEN (0-3)          | YELLOW (4-7)  | ORANGE+ (8+)   | Batches 2-3: under 5% false PASS rate  |
+| Mature    | GREEN + YELLOW (0-7) | ORANGE (8-11) | RED (12-16)    | 100+ PRs with under 2% false PASS rate |
+
 
 ## CAO Compliance Notes
 
@@ -537,10 +571,10 @@ These are verified against the CAO documentation at `github.com/awslabs/cli-agen
 1. **Required frontmatter fields**: `name`, `description`. All profiles include both.
 2. **MCP server config**: All 4 CAO profiles include the `mcpServers` block with `type: stdio`, `command: uvx`, `args` pointing to `cao-mcp-server`.
 3. **Role and tool restrictions**:
-   - Supervisor: `role: supervisor` (gets `@cao-mcp-server`, `fs_read`, `fs_list`). Cannot execute bash — file overlap detection moved to reviewer output.
-   - Reviewer: `role: reviewer` + `allowedTools: ["fs_read", "fs_list", "execute_bash", "@cao-mcp-server"]`. `allowedTools` overrides `role`. Codex uses soft enforcement.
-   - Developer: `role: developer` (full access). Codex uses soft enforcement.
-   - Merge Assistant: `role: developer` (full access). Claude Code uses hard enforcement.
+  - Supervisor: `role: supervisor` + `allowedTools: ["fs_read", "fs_list", "execute_bash", "@cao-mcp-server"]`. Bash is reserved for CAO/tmux lifecycle and Coda sync helpers, not direct diff review.
+  - Reviewer: `role: reviewer` + `allowedTools: ["fs_read", "fs_list", "execute_bash", "@cao-mcp-server"]`. `allowedTools` overrides `role`. Codex uses soft enforcement.
+  - Developer: `role: developer` (full access). Codex uses soft enforcement.
+  - Merge Assistant: `role: developer` (full access). Claude Code uses hard enforcement.
 4. **Provider values**: `claude_code` and `codex` are valid CAO provider values. Model variants (Opus, Sonnet, Spark) configured via provider CLI settings, not the `provider` frontmatter field.
 5. **Idle-based message delivery**: Supervisor prompt explicitly instructs to end turn after dispatching `assign` calls. No busy-waiting.
 6. **Assign vs handoff**: All worker dispatch uses `assign` (parallel, non-blocking). Workers return results via `send_message`. No `handoff` used in the default workflow.
@@ -552,15 +586,19 @@ These are verified against the CAO documentation at `github.com/awslabs/cli-agen
 
 Each agent profile carries a version in its header. Versions follow semver:
 
-| Change type | Bump |
-| --- | --- |
-| Prompt wording tweak | Patch (0.1.0 → 0.1.1) |
-| New heuristic, new output field, workflow step change | Minor (0.1.0 → 0.2.0) |
+
+| Change type                                             | Bump                  |
+| ------------------------------------------------------- | --------------------- |
+| Prompt wording tweak                                    | Patch (0.1.0 → 0.1.1) |
+| New heuristic, new output field, workflow step change   | Minor (0.1.0 → 0.2.0) |
 | Role restructure, scoring model change, new agent added | Major (0.1.0 → 1.0.0) |
+
 
 All changes recorded in `CHANGELOG.md`. Supervisor includes agent versions in batch summaries.
 
 ## Rollout Plan
+
+This rollout is the implementation path for the target architecture above. Active rollout still begins with Account Hub, then Ariel; additional repos require explicit onboarding before they enter the live queue.
 
 ### Phase 0 — Dry run
 
@@ -600,13 +638,15 @@ All changes recorded in `CHANGELOG.md`. Supervisor includes agent versions in ba
 
 ### Success criteria
 
-| Transition | Requirement |
-| --- | --- |
-| Phase 0 → 1 | Dry run completes, score card is reasonable |
-| Phase 1 → 2 | 0 regressions, agent scores within 2 points of manual on 80%+ PRs |
-| Phase 2 → 3 | Account Hub running smoothly, no stop-the-line incidents |
-| Per-repo Batch 1 → 2 | 0 regressions, 0% false PASS rate |
-| Batch 2-3 → 4+ | Under 5% false PASS rate |
+
+| Transition           | Requirement                                                       |
+| -------------------- | ----------------------------------------------------------------- |
+| Phase 0 → 1          | Dry run completes, score card is reasonable                       |
+| Phase 1 → 2          | 0 regressions, agent scores within 2 points of manual on 80%+ PRs |
+| Phase 2 → 3          | Account Hub running smoothly, no stop-the-line incidents          |
+| Per-repo Batch 1 → 2 | 0 regressions, 0% false PASS rate                                 |
+| Batch 2-3 → 4+       | Under 5% false PASS rate                                          |
+
 
 ### Definition of done for v1.0.0
 
@@ -622,12 +662,14 @@ All changes recorded in `CHANGELOG.md`. Supervisor includes agent versions in ba
 This spec is informed by analysis of actual Workback PRs:
 
 **Account Hub** (19 open PRs, 0 merged):
+
 - 31.6% CI first-pass rate (6/19 green)
 - 17/19 PRs touch zero test files — dominant failure mode
 - 4 PRs modify `AccountSignUpForm.tsx` — file overlap and merge conflict risk
 - 18/19 PRs opened same day — batch-open pattern
 
 **Ariel** (2 open PRs, 0 merged):
+
 - PR #3236: heading h3→h2, `js-tests` failing because `PathwayAdminList.test.tsx` still asserts `level: 3`. Ada updated `PathwayCard.test.tsx` but missed the parent component's test.
 - PR #3238: pure `aria-label` addition, all CI green. Single file, zero test impact.
 

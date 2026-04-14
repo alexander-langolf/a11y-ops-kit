@@ -1,32 +1,35 @@
 # PR Scoring Rubric
 
 Version: `0.1.0`
+Status: `target review policy to implement`
 
 Audience: ADS reviewer agents, CAO supervisor, ADS operators
 
-Purpose: Every Workback accessibility remediation PR must pass the CI merge gate before scoring. After CI is green, the reviewer agent grades the PR across 6 dimensions. The score determines whether the PR is auto-merge eligible, agent-review only, or escalated for human review.
+Purpose: Every Workback accessibility remediation PR must pass CI triage before scoring. After the current head SHA is green, the reviewer agent grades the PR across 6 dimensions. The score determines whether the PR is auto-merge eligible, agent-review only, or escalated for human review.
 
 This document is the canonical review policy for this repo.
 
 ## CI Merge Gate
 
-Every Workback remediation PR must clear the CI merge gate before it can be scored.
+Every Workback remediation PR must clear CI triage before it can be scored.
 
 | State | Reviewer action |
 | --- | --- |
 | Checks pending / in progress | WAIT. Re-check later. Do not score yet |
-| Any PR CI job red, failed, or cancelled on the current head SHA | FAIL. Return to Ada. The PR is not scoreable and cannot be merged |
+| Any PR CI job red, failed, or cancelled on the current head SHA | Diagnose ownership first. If `ada`, return `CI_BLOCKED`. If `ads`, route to the ADS test-fix workflow and re-review on the new head SHA. If `unknown`, escalate for human triage. Do not score yet |
 | All PR CI jobs green on the current head SHA | Proceed to numeric scoring |
 
 Rules:
 
 - There is no "pre-existing red but safe to merge" path in this workflow.
 - Reviewer agents do not treat `[skip ci]`, path-filter skips, or `benchmarkonly` conventions as valid shortcuts for Workback remediation PRs.
-- CI is a merge gate, not a risk signal.
+- CI triage is a merge gate, not a risk signal.
+- `CI_BLOCKED` is reserved for Ada-owned failures.
+- `ads` and `unknown` failures remain unscored until re-review or human triage completes.
 
 ## Scoring Model
 
-Scoring starts only after the CI merge gate passes.
+Scoring starts only after the current head SHA passes CI triage.
 
 ### 1. Diff Scope (0-3)
 
@@ -98,8 +101,8 @@ Single-dimension override:
 
 | State | Verdict | Meaning |
 | --- | --- | --- |
-| CI merge gate pending | WAIT | Do not score yet |
-| CI merge gate failed | CI_BLOCKED | Return to Ada. Not scoreable, not mergeable |
+| CI merge gate pending, or ADS / unknown remediation is still in progress | WAIT | Do not score yet |
+| CI triage identified an Ada-owned failure | CI_BLOCKED | Return to Ada. Not scoreable, not mergeable |
 | GREEN or YELLOW with no blocking correctness concern | PASS | Mergeable under the current trust phase |
 | ORANGE, or any scored PR that needs human judgment before merge | FLAG | Human review required before action |
 | Incorrect fix, unrelated modifications, or scored risk that should be returned to Ada | FAIL | Do not merge. Return with specific comments |
@@ -108,6 +111,8 @@ Single-dimension override:
 
 Each repo starts in Batch 1 regardless of trust level in other repos.
 
+`Auto-merge` below means eligible for the prepared merge set without extra human diff review. Sasha still launches the merge assistant unless a later automation step removes that manual launch.
+
 | Phase | Auto-merge | Agent-only | Human required | Trigger to advance |
 | --- | --- | --- | --- | --- |
 | Batch 1 | None | None | All | None |
@@ -115,7 +120,7 @@ Each repo starts in Batch 1 regardless of trust level in other repos.
 | Batch 4+ | GREEN (0-3) | YELLOW (4-7) | ORANGE+ (8+) | Batches 2-3: under 5 percent false PASS rate |
 | Mature | GREEN + YELLOW (0-7) | ORANGE (8-11) | RED (12-16) | 100+ PRs with under 2 percent false PASS rate |
 
-The CI merge gate applies in every phase before tier evaluation.
+The CI triage gate applies in every phase before tier evaluation.
 
 False PASS rate definition:
 
@@ -133,10 +138,13 @@ See:
 
 1. Run `gh pr checks {number}` for the current head SHA.
 2. If checks are pending, wait and re-check.
-3. If any PR CI job is red, failed, or cancelled, fail the PR and ask Ada to return CI to green.
-4. Only after all PR CI jobs are green should the reviewer compute the score.
-5. Post the score card comment.
-6. Return a structured result to the CAO supervisor.
+3. If any PR CI job is red, failed, or cancelled, diagnose ownership first.
+4. If the failure is `ada`-owned, post the CI-blocked comment and return `CI_BLOCKED`.
+5. If the failure is `ads`-owned, return `WAIT` plus the failure details so the supervisor can route to the ADS test-fix workflow.
+6. If ownership is `unknown`, return `WAIT` plus escalation notes for human triage.
+7. Only after all PR CI jobs are green on the current head SHA should the reviewer compute the score.
+8. Post the score card comment.
+9. Return a structured result to the CAO supervisor.
 
 ## Heuristics
 
@@ -156,6 +164,17 @@ See:
 2. For each changed component file, inspect the same directory for `*.test.*` and `*.spec.*`.
 3. Check whether those tests reference the changed element or DOM contract.
 4. If a related test exists and was not updated, score accordingly.
+
+### Red-CI Ownership Triage
+
+1. Read the failing job output before assigning ownership.
+2. Classify `ads` when the implementation appears correct but tests, snapshots, or queries still assert the old DOM, label, string, or heading level.
+3. Classify `ada` when the remediation change itself appears broken or inconsistent with the intended DOM.
+4. Classify `unknown` when the failing logs do not support confident ownership.
+
+Example:
+
+- Heading `h3` -> `h2` in component code, with failing tests still asserting `getByRole("heading", { level: 3 })`, is an `ads`-owned failure that needs test updates before re-review.
 
 ### Fix-Issue Alignment Detection
 
