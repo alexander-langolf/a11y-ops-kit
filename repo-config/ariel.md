@@ -10,6 +10,8 @@ ci_required_checks:
   - js-tests
 branch_pattern: "workbackai/fix/*"
 pr_author: ada-workbackai
+default_branch: main
+ci_poll_interval_minutes: 3
 datadog:
   dashboard: TBD
   service: ariel

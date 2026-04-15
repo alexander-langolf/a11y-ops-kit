@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 - 2026-04-15
+
+- Synced `docs/specs/2026-04-13-a11y-review-team-design.md` to v0.2.0 with implemented CAO profiles (`skills/`), no-GitHub-comments reviewer policy, batch timing and circuit breaker, Coda contract, developer worktree install guidance, merge assistant branch-protection preconditions, and repo-config optional keys.
+- Documented optional `repo-config` fields in `repo-config/README.md` and set `default_branch` / `ci_poll_interval_minutes` on `repo-config/account-hub.md` and `repo-config/ariel.md`.
+
 ## 0.2.1 - 2026-04-14
 
 - Removed `File overlap` from reviewer result format and score card template. Overlap analysis is supervisor-only, computed across PRs in the batch. Reviewer reports changed files only.

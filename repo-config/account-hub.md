@@ -10,6 +10,8 @@ ci_required_checks:
   - test-and-deploy-workflow
 branch_pattern: "workbackai/fix/*"
 pr_author: ada-workbackai
+default_branch: main
+ci_poll_interval_minutes: 3
 datadog:
   dashboard: https://app.datadoghq.eu/dashboard/cex-s7u-nk6/...
   service: account-hub
