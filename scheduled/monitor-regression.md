@@ -13,10 +13,11 @@ You are monitoring Multiverse Stardust consumer repos for post-merge regressions
 
 1. Clone the `a11y-ops-kit` repo.
 2. Read every file in `repo-config/*.md` to get the list of active repos and their Datadog config.
-3. For each repo, check for recent Workback merges (last 24h):
+3. For each repo, check `baselines_verified` in the config frontmatter. If not `true`, skip the repo and emit `MONITOR SKIPPED — {repo}: baselines not verified`. Only continue for repos where `baselines_verified: true`.
+4. For each remaining repo, check for recent Workback merges (last 24h):
    - `gh pr list --repo {repo} --state merged --author ada-workbackai --json number,title,mergedAt,files`
    - Filter to branches matching `workbackai/fix/*`.
-4. If no recent merges for a repo, skip it.
+5. If no recent merges for a repo, skip it.
 
 ### For Each Repo With Recent Merges
 
@@ -42,7 +43,7 @@ Metric: {metric} > {threshold} on {route}
 Onset: {time} ({minutes} min after PR #{number} merged)
 Suspect PR: #{number} (Side Effect Risk: {score}, {change description})
 Evidence: {route match + timing + risk score}
-Recommendation: revert PR #{number} via `gh pr revert #{number}`
+Recommendation: revert PR #{number} per `docs/rollback-protocol.md` (reverse merge order, check file overlap first)
 Confidence: high | medium | low
 ```
 

@@ -6,10 +6,10 @@ This directory stores versioned CAO agent profiles for the accessibility remedia
 
 | File | CAO name | Role | Provider | Purpose |
 | --- | --- | --- | --- | --- |
-| `cao-workback-supervisor.md` | `a11y_review_supervisor` | supervisor | claude_code (Opus) | Orchestrates batch review, routes results, dispatches workers |
-| `cao-workback-reviewer.md` | `a11y_pr_reviewer` | reviewer | codex | Scores one PR for code safety, diagnoses CI failures |
-| `cao-workback-developer.md` | `a11y_developer` | developer | codex (Spark) | Fixes test files broken by correct a11y changes |
-| `cao-merge-assistant.md` | `a11y_merge_assistant` | developer | claude_code (Sonnet) | Executes squash-merge sequence after human approval |
+| `a11y-review-supervisor.md` | `a11y_review_supervisor` | supervisor | claude_code (Opus) | Orchestrates batch review, routes results, dispatches workers |
+| `a11y-pr-reviewer.md` | `a11y_pr_reviewer` | reviewer | codex | Scores one PR for code safety, diagnoses CI failures |
+| `a11y-developer.md` | `a11y_developer` | developer | codex (Spark) | Fixes test files broken by correct a11y changes |
+| `a11y-merge-assistant.md` | `a11y_merge_assistant` | developer | claude_code (Sonnet) | Executes squash-merge sequence after human approval |
 
 The Monitor agent does not have a CAO profile here. It exists as CAO flows in `flows/` and a Claude Code cloud task in `scheduled/`.
 

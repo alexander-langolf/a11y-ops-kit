@@ -41,6 +41,7 @@ REPO=$(extract_field "repo")
 SLACK_CHANNEL=$(extract_field "slack_channel")
 BRANCH_PATTERN=$(extract_field "branch_pattern")
 PR_AUTHOR=$(extract_field "pr_author")
+BASELINES_VERIFIED=$(extract_field "baselines_verified")
 DATADOG_URL=$(extract_nested_field "datadog" "dashboard")
 BASELINE_CLS=$(extract_nested_field "datadog" "baseline_cls")
 BASELINE_JS_ERROR_RATE=$(extract_nested_field "datadog" "baseline_js_error_rate")
@@ -48,6 +49,16 @@ BASELINE_JS_ERROR_RATE=$(extract_nested_field "datadog" "baseline_js_error_rate"
 if [[ -z "$REPO" ]]; then
   echo "Error: could not extract repo from ${CONFIG_FILE}" >&2
   exit 1
+fi
+
+# Skip the monitor until baselines are measured from a real quiet window.
+# Any value other than "true" keeps the flow paused.
+if [[ "$BASELINES_VERIFIED" != "true" ]]; then
+  jq -n \
+    --arg repo "$REPO" \
+    --arg reason "baselines_verified is not true in repo-config/${REPO_SHORT}.md — measure CLS/JS-error-rate from a 7-day quiet window, then flip the flag" \
+    '{execute: false, output: {repo: $repo, skip_reason: $reason}}'
+  exit 0
 fi
 
 # Check for Workback merges in the last 6 hours.

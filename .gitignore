@@ -76,3 +76,7 @@ vite.config.ts.timestamp-*
 
 # Local machine noise
 .DS_Store
+
+# Per-batch reviewer/developer reports (local artifacts, not tracker state)
+# See docs/source-of-truth.md — issue-level state lives in Coda, not here.
+reports/

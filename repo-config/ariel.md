@@ -12,6 +12,8 @@ branch_pattern: "workbackai/fix/*"
 pr_author: ada-workbackai
 default_branch: main
 ci_poll_interval_minutes: 3
+circleci_token_env: CIRCLECI_TOKEN
+baselines_verified: false
 datadog:
   dashboard: TBD
   service: ariel
@@ -19,6 +21,8 @@ datadog:
   baseline_js_error_rate: TBD
 ---
 ```
+
+`baselines_verified: false` — baselines are entirely TBD. Monitor flow exits early until real baselines and a canonical dashboard URL land.
 
 ## Route Map
 

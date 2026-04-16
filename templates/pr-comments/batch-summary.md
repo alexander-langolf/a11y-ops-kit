@@ -18,6 +18,18 @@ Scored PR distribution: avg `{avg_score}`, median `{median_score}`, max `{max_sc
 
 `{file_overlap_warnings}`
 
+### Outdated Branches
+
+`{outdated_branch_prs}`
+
+### Conflicted Branches
+
+`{conflicted_branch_prs}`
+
+### Decisions
+
+`{decisions}`
+
 ### Action Needed
 
 - Review PRs: `{review_prs}`

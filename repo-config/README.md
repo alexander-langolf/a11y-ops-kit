@@ -25,6 +25,8 @@ ci_poll_interval_minutes: 3
 package_manager: yarn
 # install_command: yarn install --immutable  # set when developer agent needs explicit install
 # test_command_hint: yarn test SomeFile.test.tsx
+circleci_token_env: CIRCLECI_TOKEN
+baselines_verified: false
 datadog:
   dashboard: {dashboard URL}
   service: {service name}
@@ -42,6 +44,8 @@ Optional keys (omit or set when known):
 | `package_manager` | — | Hint: `yarn`, `npm`, or `pnpm`. |
 | `install_command` | — | Single shell command from worktree root before tests (developer agent). |
 | `test_command_hint` | — | Example test invocation for the developer agent. |
+| `circleci_token_env` | — | Name of the env var holding a CircleCI API token. Required for the reviewer to retrieve CircleCI job logs on external `ci/circleci:*` checks. When unset, reviewer falls back to local CI-order reproduction. |
+| `baselines_verified` | `false` | Monitor flows exit early with `MONITOR SKIPPED` while this is `false`. Flip to `true` after CLS, LCP, and JS-error-rate baselines in the `datadog` block are measured from a real 7-day quiet window rather than estimated. |
 
 Body contains:
 - Route map (file → route mapping for affected route detection)

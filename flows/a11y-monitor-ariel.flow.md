@@ -10,6 +10,8 @@ script: ./scripts/check-recent-merges.sh ariel
 
 You are monitoring the [[repo]] repository for post-merge regressions from Workback accessibility remediation PRs.
 
+The conditional script gates on `baselines_verified: true` in the repo config. If the script reported `execute: false` with a `skip_reason`, do not run — exit with `MONITOR SKIPPED — {repo}: {skip_reason}` and post a single-line note to [[slack_channel]].
+
 ## Context
 
 Recent merges:
@@ -41,7 +43,7 @@ Metric: {metric} > {threshold} on {route}
 Onset: {time} ({minutes} min after PR #{number} merged)
 Suspect PR: #{number} (Side Effect Risk: {score}, {change description})
 Evidence: {route match + timing + risk score}
-Recommendation: revert PR #{number} via `gh pr revert #{number}`
+Recommendation: revert PR #{number} per `docs/rollback-protocol.md` (reverse merge order, check file overlap first)
 Confidence: high | medium | low
 ```
 
